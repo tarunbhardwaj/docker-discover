@@ -1,55 +1,49 @@
 #!/usr/bin/python
 
-import etcd
+from redis import Redis
 from jinja2 import Environment, PackageLoader
 import os
 from subprocess import call
 import signal
-import sys
 import time
 
 env = Environment(loader=PackageLoader('haproxy', 'templates'))
-POLL_TIMEOUT=5
+POLL_TIMEOUT = 5
 
 signal.signal(signal.SIGCHLD, signal.SIG_IGN)
 
-def get_etcd_addr():
-    if "ETCD_HOST" not in os.environ:
-        print "ETCD_HOST not set"
-        sys.exit(1)
-
-    etcd_host = os.environ["ETCD_HOST"]
-    if not etcd_host:
-        print "ETCD_HOST not set"
-        sys.exit(1)
-
-    port = 4001
-    host = etcd_host
-
-    if ":" in etcd_host:
-        host, port = etcd_host.split(":")
-
-    return host, port
 
 def get_services():
+    client = Redis(
+        host=os.environ['REDIS_HOST'],
+        port=int(os.environ.get('REDIS_PORT', 6379)),
+        db=6
+    )
+    """
+    route_map = {
+        'service_name': {
+            'frontend': set([
+                'test.in',
+                'test.com',
+            ]),
+            'backend': set([
+                '1.1.1.1:8000',
+                '1.1.1.2:8001',
+            ])
+        }
+    }
+    """
+    route_map = {}
+    for key in client.keys("routes:*"):
+        _, service, host, id = key.split(':')
+        route_pair = route_map.setdefault(service, {})
+        # map hostname
+        route_pair.setdefault('frontend', set([])).add(host)
+        # map ip:port
+        route_pair.setdefault('backend', set([])).add(
+            tuple(client.get(key).split(':')))
+    return route_map
 
-    host, port = get_etcd_addr()
-    client = etcd.Client(host=host, port=int(port))
-    backends = client.read('/backends', recursive = True)
-    services = {}
-
-    for i in backends.children:
-
-        if i.key[1:].count("/") != 2:
-            continue
-
-        ignore, service, container = i.key[1:].split("/")
-        endpoints = services.setdefault(service, dict(port="", backends=[]))
-        if container == "port":
-            endpoints["port"] = i.value
-            continue
-        endpoints["backends"].append(dict(name=container, addr=i.value))
-    return services
 
 def generate_config(services):
     template = env.get_template('haproxy.cfg.tmpl')

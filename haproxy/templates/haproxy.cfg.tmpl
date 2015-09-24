@@ -1,6 +1,5 @@
 global
     daemon
-    maxconn 4096
     pidfile /var/run/haproxy.pid
 
 defaults
@@ -19,9 +18,18 @@ listen stats :1936
     stats uri /
     #stats auth Username:Password
 
-{% for service in services %}
-listen {{ service }}
-    bind *:{{services[service].port}}
-    {% for backend in services[service].backends %}
-    server {{ backend.name }} {{ backend.addr }} check inter 2s rise 3 fall 2{% endfor %}
+frontend http
+    bind *:80
+{% for service, value in services.iteritems() %}
+    acl is_{{service}} hdr_end(host) -i {{value['frontend'] | first }}
+    use_backend {{service}} if is_{{service}}
+{% endfor %}
+
+{% for service, value in services.iteritems() %}
+backend {{service}}
+    balance roundrobin
+
+    {% for backend in value['backend'] %}
+    server qa1 {{ backend[0] }}:{{ backend[1] }}
+    {% endfor %}
 {% endfor %}
