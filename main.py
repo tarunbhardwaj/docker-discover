@@ -35,10 +35,11 @@ def get_services():
     """
     route_map = {}
     for key in client.keys("routes:*"):
-        _, service, host, id = key.split(':')
+        _, service, hosts, id = key.split(':')
         route_pair = route_map.setdefault(service, {})
-        # map hostname
-        route_pair.setdefault('frontend', set([])).add(host)
+        for host in hosts.split(','):
+            # map hostname
+            route_pair.setdefault('frontend', set([])).add(host)
         # map ip:port
         route_pair.setdefault('backend', set([])).add(
             tuple(client.get(key).split(':')))
